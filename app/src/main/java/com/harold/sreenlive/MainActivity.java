@@ -14,6 +14,7 @@ import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.provider.MediaStore;
 import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
@@ -30,7 +31,11 @@ import android.widget.Button;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+
+import org.java_websocket.WebSocket;
+import org.java_websocket.server.WebSocketServer;
 
 //public class MainActivity extends AppCompatActivity {
 public class MainActivity extends AppCompatActivity {
@@ -51,8 +56,14 @@ public class MainActivity extends AppCompatActivity {
     private Surface mSurface;
     private MediaCodec.BufferInfo mBufferInfo = new MediaCodec.BufferInfo();
 
+    private boolean bFirstFrame=true; //SPS,PPS
     private MediaMuxer mMediaMuxer;
     private int mVideoTrackIndex;
+
+    private long firstFrameDTS = 0;
+    private long firstFramePTS = 0;
+
+    private SimpleServerThread wsServer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -64,6 +75,11 @@ public class MainActivity extends AppCompatActivity {
 
         mBtn1 = (Button)findViewById(R.id.button1);
         mBtn1.setOnClickListener(onClickListenerTakePhoto);
+
+        //this.mUtil = new Util();
+
+        this.wsServer = new SimpleServerThread();
+        this.wsServer.start();
     }
 
     private View.OnClickListener onClickListenerTakePhoto = new View.OnClickListener(){
@@ -78,11 +94,13 @@ public class MainActivity extends AppCompatActivity {
     };
 
     private void startScreenRecord(){
-        Log.d(LOG_TAG, "startScreenRecord-----------------------------------");
+        this.wsServer.data="234";
+
+        /*Log.d(LOG_TAG, "startScreenRecord-----------------------------------");
         mbRecording = true;
         Intent captureIntent = mMediaProjectionManager.createScreenCaptureIntent();
         startActivityForResult(captureIntent, REQUEST_MEDIA_PROJECTION_CODE);
-        mBtn1.setText("停止录屏");
+        mBtn1.setText("停止录屏");*/
     }
 
     private void stopScreenRecord() {
@@ -187,7 +205,6 @@ public class MainActivity extends AppCompatActivity {
 
     protected void initEncoder(){
         try {
-
             MediaFormat mediaFormat = MediaFormat.createVideoFormat("video/avc", 600, 800);
             mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
             mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, 300*1000);
@@ -233,17 +250,59 @@ public class MainActivity extends AppCompatActivity {
          }
     };
 
+    private int printByteBuffer(ByteBuffer buf){
+        int len=0;
+        String str="";
+        while(buf.hasRemaining()){
+            str = str + ",0x" + Integer.toHexString(buf.get() & 0xFF);
+            len++;
+        }
+        Log.d(LOG_TAG, str);
+        return len;
+    }
+
     private void muxVideo(int index, MediaCodec.BufferInfo buffer){
+
         ByteBuffer encodedVideo = mEncoder.getOutputBuffer(index);
 
+        boolean bConfigFrame = (buffer.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) !=0;
+        boolean bKeyFrame = (buffer.flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0;
+
+        long dts = 0;
+        long pts = 0;
+        if(bConfigFrame) {
+            //TODO:记录配置信息，供fpm4 的header使用
+            this.printByteBuffer(encodedVideo);
+        }else if(bKeyFrame && this.bFirstFrame){//第一个I帧
+            this.bFirstFrame = false;
+            this.firstFrameDTS = System.currentTimeMillis();
+            this.firstFramePTS = buffer.presentationTimeUs/1000;
+        }else{
+            dts = System.currentTimeMillis() - this.firstFrameDTS;
+            pts = buffer.presentationTimeUs/1000 - this.firstFramePTS;
+        }
+
+        /*cts;
+        originalDts;
+        duration;
+        size;
+        isKeyFrame;
+        flags;*/
+
+        Log.d(LOG_TAG, "flag:"+buffer.flags+" offset:"+buffer.flags+" timeus:"+(buffer.presentationTimeUs/1000)+" size:"+buffer.size);
+        //Log.d(LOG_TAG, "bufferlen:"+len);
+        Log.d(LOG_TAG, "dts:"+dts+" pts:"+pts);
+
+        //Log.d(LOG_TAG, encodedVideo)
         //ByteBuffer outBuffer = mEncoder.getOutputBuffer(index);
         //MediaFormat bufferFormat = mEncoder.getOutputFormat(index);
 
         mMediaMuxer.writeSampleData(mVideoTrackIndex, encodedVideo, buffer);
-        Log.d(LOG_TAG, "muxer write data"+ buffer + encodedVideo);
+       // Log.d(LOG_TAG, "muxer write data");
+        //Log.d(LOG_TAG, "encodedVideo:"+ encodedVideo);
+        //Log.d(LOG_TAG, "buffer:"+ buffer);
 
         mEncoder.releaseOutputBuffer(index, false);
-
     }
 
     private void initMediaMuxer(String filePath){
