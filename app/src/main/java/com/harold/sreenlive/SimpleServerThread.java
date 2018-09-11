@@ -21,18 +21,23 @@ public class SimpleServerThread extends Thread {
     public void run(){
         Util util = new Util();
         String host = util.getIpAddressString();
-        Log.d(LOG_TAG, "ip:"+host);
 
-        Log.d(LOG_TAG, "33333333333333333333333333333");
         SimpleServer server = new SimpleServer(new InetSocketAddress(host, 8887));
        //server.run();
         server.start();
+        Log.d(LOG_TAG, "web service is started at:"+host+":"+8887);
 
         while(true){
             if(""!=this.data){
-                server.broadcast("Hi ");
-                Log.d(LOG_TAG, "broadcase Hi");
+                server.broadcast(this.data);
+                Log.d(LOG_TAG, this.data);
                 this.data="";
+            }
+
+            try{
+                Thread.sleep(10);
+            }catch(Exception e){
+
             }
         }
     }

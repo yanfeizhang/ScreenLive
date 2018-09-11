@@ -38,8 +38,7 @@ public class SimpleServer extends WebSocketServer{
 
     public void onOpen(WebSocket conn, ClientHandshake handshake){
         //mConns.add(conn);
-
-        conn.send("Welcome to server!");
+        //conn.send("Welcome to server!");
         Log.d(LOG_TAG, "new connection");
     }
 
